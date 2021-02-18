@@ -54,7 +54,7 @@ class Dot(files.File):
     def __init__(self, name=None, comment=None,
                  filename=None, directory=None,
                  format=None, engine=None, encoding=backend.ENCODING,
-                 graph_attr=None, node_attr=None, edge_attr=None, body=None,
+                 graph_attr=None, node_attr=None, edge_attr=None,
                  strict=False):
         self.name = name
         self.comment = comment
@@ -65,7 +65,11 @@ class Dot(files.File):
         self.node_attr = dict(node_attr) if node_attr is not None else {}
         self.edge_attr = dict(edge_attr) if edge_attr is not None else {}
 
-        self.body = list(body) if body is not None else []
+        self.body = []
+
+        self._nodes = []
+        self._edges = []
+        self._subgraphs = []
 
         self.strict = strict
 
@@ -109,6 +113,20 @@ class Dot(files.File):
             if attrs:
                 yield self._attr % (kw, self._attr_list(None, attrs))
 
+        yield '// NODES'
+        for name, label, attrs, _attributes in self._nodes:
+            attr_list = self._attr_list(label, attrs, _attributes)
+            yield self._node % (name, attr_list)
+
+        yield '// SUBGRAPHS'
+        for graph in self._subgraphs:
+            yield from ['\t' + line for line in graph.__iter__(subgraph=True)]
+
+        yield '// EDGES'
+        for tail_name, head_name, label, attrs, _attributes in self._edges:
+            attr_list = self._attr_list(label, attrs, _attributes)
+            yield self._edge % (tail_name, head_name, attr_list)
+
         for line in self.body:
             yield line
 
@@ -128,9 +146,7 @@ class Dot(files.File):
             attrs: Any additional node attributes (must be strings).
         """
         name = self._quote(name)
-        attr_list = self._attr_list(label, attrs, _attributes)
-        line = self._node % (name, attr_list)
-        self.body.append(line)
+        self._nodes.append((name, label, attrs, _attributes))
 
     def edge(self, tail_name, head_name, label=None, _attributes=None, **attrs):
         """Create an edge between two nodes.
@@ -149,9 +165,7 @@ class Dot(files.File):
         """
         tail_name = self._quote_edge(tail_name)
         head_name = self._quote_edge(head_name)
-        attr_list = self._attr_list(label, attrs, _attributes)
-        line = self._edge % (tail_name, head_name, attr_list)
-        self.body.append(line)
+        self._edges.append((tail_name, head_name, label, attrs, _attributes))
 
     def edges(self, tail_head_iter):
         """Create a bunch of edges.
@@ -167,10 +181,8 @@ class Dot(files.File):
             ``compass`` (e.g. ``sw``).
             See :ref:`details in the User Guide <ports>`.
         """
-        edge = self._edge_plain
-        quote = self._quote_edge
-        lines = (edge % (quote(t), quote(h)) for t, h in tail_head_iter)
-        self.body.extend(lines)
+        for tail_name, head_name in tail_head_iter:
+            self.edge(tail_name, head_name)
 
     def attr(self, kw=None, _attributes=None, **attrs):
         """Add a general or graph/node/edge attribute statement.
@@ -230,7 +242,6 @@ class Dot(files.File):
                                           'graph_attr': graph_attr,
                                           'node_attr': node_attr,
                                           'edge_attr': edge_attr,
-                                          'body': body,
                                           'strict': None})
 
         args = [name, comment, graph_attr, node_attr, edge_attr, body]
@@ -241,8 +252,7 @@ class Dot(files.File):
             raise ValueError(f'{self!r} cannot add subgraph of different kind:'
                              f' {graph!r}')
 
-        lines = ['\t' + line for line in graph.__iter__(subgraph=True)]
-        self.body.extend(lines)
+        self._subgraphs.append(graph)
 
 
 class SubgraphContext(object):
